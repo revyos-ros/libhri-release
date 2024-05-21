@@ -2,6 +2,9 @@
 Changelog for package pyhri
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.4.0 (2024-05-13)
+------------------
+
 2.3.0 (2024-03-18)
 ------------------
 * change python module name to hri
