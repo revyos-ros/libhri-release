@@ -1,0 +1,12 @@
+Source: ros-humble-hri
+Section: misc
+Priority: optional
+Maintainer: Séverin Lemaignan <severin.lemaignan@pal-robotics.com>
+Build-Depends: debhelper (>= 9.0.0), libopencv-dev, ros-humble-ament-cmake, ros-humble-ament-cmake-gtest <!nocheck>, ros-humble-ament-lint-auto <!nocheck>, ros-humble-ament-lint-common <!nocheck>, ros-humble-cv-bridge, ros-humble-geometry-msgs, ros-humble-hri-msgs, ros-humble-rclcpp, ros-humble-rclcpp-lifecycle, ros-humble-sensor-msgs, ros-humble-std-msgs, ros-humble-tf2, ros-humble-tf2-ros, ros-humble-ros-workspace
+Homepage: http://wiki.ros.org/hri
+Standards-Version: 3.9.2
+
+Package: ros-humble-hri
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libopencv-dev, ros-humble-cv-bridge, ros-humble-geometry-msgs, ros-humble-hri-msgs, ros-humble-rclcpp, ros-humble-rclcpp-lifecycle, ros-humble-sensor-msgs, ros-humble-std-msgs, ros-humble-tf2, ros-humble-tf2-ros, ros-humble-ros-workspace
+Description: A wrapper library around the ROS4HRI ROS topics
