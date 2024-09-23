@@ -34,8 +34,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp/utilities.hpp"
 
-#include "pyhri/ndarray_converter.h"
 #include "pyhri/converters.hpp"
+#include "pyhri/ndarray_converter.h"
 
 namespace py = pybind11;
 
@@ -46,7 +46,8 @@ class PyFeatureTracker : public hri::FeatureTracker
 {
 public:
   using hri::FeatureTracker::FeatureTracker;
-  std::optional<geometry_msgs::msg::TransformStamped> transform() const override
+  std::optional<geometry_msgs::msg::TransformStamped>
+  transform() const override
   {
     PYBIND11_OVERRIDE(
       // cppcheck-suppress[syntaxError] trailing comma is required for 0 arg function overrides
@@ -64,17 +65,32 @@ public:
 class PyHRIListener : public hri::HRIListener
 {
 public:
-  [[nodiscard]] static std::shared_ptr<PyHRIListener> create(
-    std::string node_name, bool auto_spin)
+  [[nodiscard]] static std::shared_ptr<PyHRIListener>
+  create(std::string node_name, bool auto_spin, bool use_sim_time)
   {
     if (!rclcpp::ok()) {
       rclcpp::init(0, NULL);
     }
+    auto options = rclcpp::NodeOptions();
+    if (use_sim_time) {
+      options.append_parameter_override("use_sim_time", rclcpp::ParameterValue(true));
+    }
     return std::shared_ptr<PyHRIListener>(
-      new PyHRIListener(rclcpp::Node::make_shared(node_name), auto_spin));
+      new PyHRIListener(rclcpp::Node::make_shared(node_name, options), auto_spin));
   }
 
-  void spin_some(std::chrono::nanoseconds timeout) {executor_->spin_some(timeout);}
+  ~PyHRIListener() override
+  {
+    executor_->cancel();
+    if (thread_ && thread_->joinable()) {
+      thread_->join();
+    }
+  }
+
+  void spin_some(std::chrono::nanoseconds timeout)
+  {
+    executor_->spin_some(timeout);
+  }
 
 protected:
   explicit PyHRIListener(rclcpp::Node::SharedPtr node, bool auto_spin)
@@ -95,15 +111,15 @@ private:
 
 constexpr char pybind_enum_doc[]{
   R"(
-  This is an enumeration class but different from enum.Enum.
+This is an enumeration class but different from enum.Enum.
 
-  For a basic usage, see
-  https://pybind11.readthedocs.io/en/stable/classes.html#enumerations-and-internal-types.
-  For some insights on the differences with enum.Enum, see
-  https://github.com/pybind/pybind11/issues/2332.
+For a basic usage, see
+https://pybind11.readthedocs.io/en/stable/classes.html#enumerations-and-internal-types.
+For some insights on the differences with enum.Enum, see
+https://github.com/pybind/pybind11/issues/2332.
 
-  Notably, the object is not iterable, you can use use `__members__` method instead.
-  )"};
+Notably, the object is not iterable, you can use use `__members__` method instead.
+)"};
 
 PYBIND11_MODULE(hri, m) {
   m.doc() =
@@ -112,7 +128,7 @@ PYBIND11_MODULE(hri, m) {
 
     Each exported object is documented, to view it use `print(<class>.__doc__)` and/or
     `help(<class)`.
-    The main entry point for its usage is `HRIListener` class.
+    The main entry point for its usage is :py:class:`HRIListener` class.
     )";
 
   NDArrayConverter::init_numpy();
@@ -122,6 +138,33 @@ PYBIND11_MODULE(hri, m) {
   engagement_level.value("ENGAGING", hri::EngagementLevel::kEngaging);
   engagement_level.value("ENGAGED", hri::EngagementLevel::kEngaged);
   engagement_level.value("DISENGAGING", hri::EngagementLevel::kDisengaging);
+
+  py::enum_<hri::Expression> expression(m, "Expression", pybind_enum_doc);
+  expression.value("NEUTRAL", hri::Expression::kNeutral);
+  expression.value("ANGRY", hri::Expression::kAngry);
+  expression.value("SAD", hri::Expression::kSad);
+  expression.value("HAPPY", hri::Expression::kHappy);
+  expression.value("SURPRISED", hri::Expression::kSurprised);
+  expression.value("DISGUSTED", hri::Expression::kDisgusted);
+  expression.value("SCARED", hri::Expression::kScared);
+  expression.value("PLEADING", hri::Expression::kPleading);
+  expression.value("VULNERABLE", hri::Expression::kVulnerable);
+  expression.value("DESPAIRED", hri::Expression::kDespaired);
+  expression.value("GUILTY", hri::Expression::kGuilty);
+  expression.value("DISAPPOINTED", hri::Expression::kDisappointed);
+  expression.value("EMBARRASSED", hri::Expression::kEmbarrassed);
+  expression.value("HORRIFIED", hri::Expression::kHorrified);
+  expression.value("SKEPTICAL", hri::Expression::kSkeptical);
+  expression.value("ANNOYED", hri::Expression::kAnnoyed);
+  expression.value("FURIOUS", hri::Expression::kFurious);
+  expression.value("SUSPICIOUS", hri::Expression::kSuspicious);
+  expression.value("REJECTED", hri::Expression::kRejected);
+  expression.value("BORED", hri::Expression::kBored);
+  expression.value("TIRED", hri::Expression::kTired);
+  expression.value("ASLEEP", hri::Expression::kAsleep);
+  expression.value("CONFUSED", hri::Expression::kConfused);
+  expression.value("AMAZED", hri::Expression::kAmazed);
+  expression.value("EXCITED", hri::Expression::kExcited);
 
   py::enum_<hri::Gender> gender(m, "Gender", pybind_enum_doc);
   gender.value("FEMALE", hri::Gender::kFemale);
@@ -300,86 +343,104 @@ PYBIND11_MODULE(hri, m) {
   skeletal_keypoint.value("LEFT_EAR", hri::SkeletalKeypoint::kLeftEar);
   skeletal_keypoint.value("RIGHT_EAR", hri::SkeletalKeypoint::kRightEar);
 
-  py::class_<hri::FeatureTracker, std::shared_ptr<hri::FeatureTracker>, PyFeatureTracker>
+  py::class_<hri::FeatureTracker, std::shared_ptr<hri::FeatureTracker>,
+    PyFeatureTracker>
   feature_tracker(m, "FeatureTracker");
   feature_tracker.doc() =
     R"(
     The generic feature instance being tracked.
 
-    This class should be created and managed only by HRIListener, it is exposed only for read access
-    purposes.
-    All its properties may return None if not available.
+    This class should be created and managed only by :py:class`HRIListener`, it is exposed
+    only for read access purposes. All its properties may return None if not
+    available.
 
     Properties:
-    id -- unique ID of this feature (str)
-    ns -- fully-qualified topic namespace under which this feature is published (str)
-    frame -- name of the tf frame that correspond to this feature (str)
-    transform -- feature stamped 3D transform (geometry_msgs.msg.TransformStamped)
-    valid -- whether the feature is still 'valid', i.e., existing (bool)
+
+    - :py:attr:`id` -- unique ID of this feature (str)
+    - :py:attr:`ns` -- fully-qualified topic namespace under which this feature
+      is published (str)
+    - :py:attr:`frame` -- name of the tf frame that correspond to this feature (str)
+    - :py:attr:`transform` -- feature stamped 3D transform
+      (geometry_msgs.msg.TransformStamped)
+    - :py:attr:`valid` -- whether the feature is still 'valid', i.e., existing (bool)
     )";
   feature_tracker.def_property_readonly(
-    "id", &hri::FeatureTracker::id, "Unique ID of this feature");
+    "id", &hri::FeatureTracker::id,
+    "Unique ID of this feature");
   feature_tracker.def_property_readonly(
     "ns", &hri::FeatureTracker::ns,
     "Fully-qualified topic namespace under which this feature is published");
   feature_tracker.def_property_readonly(
-    "frame", &hri::FeatureTracker::frame, "Name of the tf frame that correspond to this feature");
+    "frame", &hri::FeatureTracker::frame,
+    "Name of the tf frame that correspond to this feature");
   feature_tracker.def_property_readonly(
     "transform", &PyPubFeatureTracker::transform,
     "Feature stamped 3D transform (geometry_msgs.msg.TransformStamped)");
   feature_tracker.def_property_readonly(
-    "valid", &PyPubFeatureTracker::valid, "Whether the feature is still 'valid', i.e., existing");
+    "valid", &PyPubFeatureTracker::valid,
+    "Whether the feature is still 'valid', i.e., existing");
   feature_tracker.def(py::self < py::self);
 
-  py::class_<hri::Body, std::shared_ptr<hri::Body>> body(m, "Body", feature_tracker);
+  py::class_<hri::Body, std::shared_ptr<hri::Body>> body(m, "Body",
+    feature_tracker);
   body.doc() =
     R"(
     The body feature instance being tracked.
 
-    This class should be created and managed only by HRIListener, it is exposed only for read access
+    This class should be created and managed only by :py:class`HRIListener`, it is exposed only for read access
     purposes.
-    It inherits from FeatureTracker, check its documentation for additional properties.
+    It inherits from :py:class:`FeatureTracker`, check its documentation for additional properties.
     All its properties may return None if not available.
 
     Properties:
-    roi -- normalized 2D region of interest (RoI) of the body (Tuple (x,y,width,height))
-    cropped -- body image, cropped from the source image (numpy.ndarray)
-    skeleton -- 2D skeleton keypoints (Dict[SkeletalKeypoint, PointOfInterest])
+
+    - :py:attr:`roi` -- normalized 2D region of interest (RoI) of the body (Tuple (x,y,width,height))
+    - :py:attr:`cropped` -- body image, cropped from the source image (numpy.ndarray)
+    - :py:attr:`skeleton` -- 2D skeleton keypoints (Dict[SkeletalKeypoint, PointOfInterest])
     )";
   body.def_property_readonly(
     "roi", &hri::Body::roi,
-    "Normalized 2D region of interest (RoI) of the body (Tuple (x,y,width,height))");
+    "Normalized 2D region of interest (RoI) of the "
+    "body (Tuple (x,y,width,height))");
   body.def_property_readonly(
-    "cropped", &hri::Body::cropped, "Body image, cropped from the source image (numpy.ndarray)");
+    "cropped", &hri::Body::cropped,
+    "Body image, cropped from the source image (numpy.ndarray)");
   body.def_property_readonly(
     "skeleton", &hri::Body::skeleton,
     "2D skeleton keypoints (Dict[SkeletalKeypoint, PointOfInterest])");
 
-  py::class_<hri::Face, std::shared_ptr<hri::Face>> face(m, "Face", feature_tracker);
+  py::class_<hri::Face, std::shared_ptr<hri::Face>> face(m, "Face",
+    feature_tracker);
   face.doc() =
     R"(
     The face feature instance being tracked.
 
-    This class should be created and managed only by HRIListener, it is exposed only for read access
+    This class should be created and managed only by :py:class`HRIListener`, it is exposed only for read access
     purposes.
-    It inherits from FeatureTracker, check its documentation for additional properties.
+    It inherits from :py:class:`FeatureTracker`, check its documentation for additional properties.
     All its properties may return None if not available.
 
     Properties:
-    roi -- normalized 2D region of interest (RoI) of the face (Tuple (x,y,width,height))
-    cropped -- face image, cropped from the source image (numpy.ndarray)
-    aligned -- face image, cropped and aligned from the source image (numpy.ndarray)
-    facial_landmarks -- facial landmarks (Dict[FacialLandmark, PointOfInterest])
-    facial_action_units -- facial action units (Dict[FacialActionUnit, IntensityConfidence])
-    age -- person's age in years (float)
-    gender -- person's gender (Gender)
-    gaze_transform -- gaze's stamped 3D transform (geometry_msgs.msg.TransformStamped)
+
+    - :py:attr:`roi` -- normalized 2D region of interest (RoI) of the face (Tuple (x,y,width,height))
+    - :py:attr:`cropped` -- face image, cropped from the source image (numpy.ndarray)
+    - :py:attr:`aligned` -- face image, cropped and aligned from the source image (numpy.ndarray)
+    - :py:attr:`facial_landmarks` -- facial landmarks (Dict[FacialLandmark, PointOfInterest])
+    - :py:attr:`facial_action_units` -- facial action units (Dict[FacialActionUnit, IntensityConfidence])
+    - :py:attr:`age` -- person's age in years (float)
+    - :py:attr:`gender` -- person's gender (Gender)
+    - :py:attr:`expression` -- person's expression as discrete state (Expression)
+    - :py:attr:`expression_va` -- person's expression in circumplex model space (Tuple (valence, arousal))
+    - :py:attr:`expression_confidence` -- person's expression confidence (float)
+    - :py:attr:`gaze_transform` -- gaze's stamped 3D transform (geometry_msgs.msg.TransformStamped)
     )";
   face.def_property_readonly(
     "roi", &hri::Face::roi,
-    "Normalized 2D region of interest (RoI) of the face (Tuple (x,y,width,height))");
+    "Normalized 2D region of interest (RoI) of the "
+    "face (Tuple (x,y,width,height))");
   face.def_property_readonly(
-    "cropped", &hri::Face::cropped, "Face image, cropped from the source image (numpy.ndarray)");
+    "cropped", &hri::Face::cropped,
+    "Face image, cropped from the source image (numpy.ndarray)");
   face.def_property_readonly(
     "aligned", &hri::Face::aligned,
     "Face image, cropped and aligned from the source image (numpy.ndarray)");
@@ -390,79 +451,125 @@ PYBIND11_MODULE(hri, m) {
     "facial_action_units", &hri::Face::facialActionUnits,
     "Facial action units (Dict[FacialActionUnit, IntensityConfidence])");
   face.def_property_readonly(
-    "age", &hri::Face::age, "Person's age in years (float)");
+    "age", &hri::Face::age,
+    "Person's age in years (float)");
   face.def_property_readonly(
-    "gender", &hri::Face::gender, "Person's gender (Gender)");
+    "gender", &hri::Face::gender,
+    "Person's gender (Gender)");
   face.def_property_readonly(
     "gaze_transform", &hri::Face::gazeTransform,
     "Gaze's stamped 3D transform (geometry_msgs.msg.TransformStamped)");
-
-  py::class_<hri::Voice, std::shared_ptr<hri::Voice>> voice(m, "Voice", feature_tracker);
+  face.def_property_readonly(
+    "expression", &hri::Face::expression,
+    "Face expression as a discrete state");
+  face.def_property_readonly(
+    "expression_va", &hri::Face::expressionVA,
+    "Face expression as a continuous value in the circumplex model space (ExpressionVA)");
+  face.def_property_readonly(
+    "expression_confidence", &hri::Face::expressionConfidence,
+    "Person's expression confidence");
+  py::class_<hri::Voice, std::shared_ptr<hri::Voice>> voice(m, "Voice",
+    feature_tracker);
   voice.doc() =
     R"(
     The voice feature instance being tracked.
 
-    This class should be created and managed only by HRIListener, it is exposed only for read access
+    This class should be created and managed only by :py:class`HRIListener`, it is exposed only for read access
     purposes.
-    It inherits from FeatureTracker, check its documentation for additional properties.
+    It inherits from :py:class:`FeatureTracker`, check its documentation for additional properties.
     All its properties may return None if not available.
 
     Properties:
-    is_speaking -- whether speech is currently detected in this voice (bool)
-    speech -- last recognised final sentence (str)
-    incremental_speech -- last recognised incremental sentence (str)
+
+    - :py:attr:`is_speaking` -- whether speech is currently detected in this voice (bool)
+    - :py:attr:`speech` -- last recognised final sentence (str)
+    - :py:attr:`incremental_speech` -- last recognised incremental sentence (str)
+    - :py:attr:`locale` -- last recognised speech locale (str)
 
     Methods (use `help(Voice)` to see the signatures):
-    on_speaking -- registers a callback function, to be invoked everytime speech is detected
-    on_speech -- registers a callback function, to be invoked everytime a final sentence is detected
-    on_incremental_speech -- registers a callback function, to be invoked everytime an incremental
-                             sentence is detected
+
+    - :py:meth:`on_speaking` -- registers a callback function, to be invoked everytime speech is detected
+    - :py:meth:`on_speech` -- registers a callback function, to be invoked everytime a final sentence is detected
+    - :py:meth:`on_incremental_speech` -- registers a callback function, to be invoked everytime an incremental
+      sentence is detected
     )";
   voice.def_property_readonly(
     "is_speaking", &hri::Voice::isSpeaking,
     "Whether speech is currently detected in this voice (bool)");
   voice.def_property_readonly(
-    "speech", &hri::Voice::speech, "Last recognised final sentence (str)");
+    "speech", &hri::Voice::speech,
+    "Last recognised final sentence (str)");
   voice.def_property_readonly(
-    "incremental_speech", &hri::Voice::incrementalSpeech,
+    "incremental_speech",
+    &hri::Voice::incrementalSpeech,
     "Last recognised incremental sentence (str)");
+  voice.def_property_readonly(
+    "locale",
+    &hri::Voice::locale,
+    "Last recognised speech locale (str)");
   voice.def(
     "on_speaking", &hri::Voice::onSpeaking, py::arg("callback"),
-    "Registers a callback function, to be invoked everytime speech is detected");
+    "Registers a callback function, to be invoked everytime speech is "
+    "detected");
   voice.def(
-    "on_speech", &hri::Voice::onSpeech, py::arg("callback"),
+    "on_speech",
+    static_cast<void (hri::Voice::*)(
+      std::function<void(const std::string &)>)>(&hri::Voice::onSpeech),
+    py::arg("callback"),
+    "Deprecated");
+  voice.def(
+    "on_speech",
+    static_cast<void (hri::Voice::*)(
+      std::function<void(const std::string &, const std::string &)>)>(&hri::Voice::onSpeech),
+    py::arg("callback"),
     "Registers a callback function, to be invoked everytime a final sentence is detected");
   voice.def(
-    "on_incremental_speech", &hri::Voice::onIncrementalSpeech, py::arg("callback"),
-    "Registers a callback function, to be invoked everytime san incremental sentence is detected");
+    "on_incremental_speech",
+    static_cast<void (hri::Voice::*)(
+      std::function<void(const std::string &)>)>(&hri::Voice::onIncrementalSpeech),
+    py::arg("callback"),
+    "Deprecated");
+  voice.def(
+    "on_incremental_speech",
+    static_cast<void (hri::Voice::*)(
+      std::function<void(const std::string &, const std::string &)>)>(
+      &hri::Voice::onIncrementalSpeech),
+    py::arg("callback"),
+    "Registers a callback function, to be invoked everytime an incremental sentence is detected");
 
-  py::class_<hri::Person, std::shared_ptr<hri::Person>> person(m, "Person", feature_tracker);
+  py::class_<hri::Person, std::shared_ptr<hri::Person>> person(m, "Person",
+    feature_tracker);
   person.doc() =
     R"(
     The person feature instance being tracked or known.
 
-    This class should be created and managed only by HRIListener, it is exposed only for read access
+    This class should be created and managed only by :py:class`HRIListener`, it is exposed only for read access
     purposes.
-    It inherits from FeatureTracker, check its documentation for additional properties.
+    It inherits from :py:class:`FeatureTracker`, check its documentation for additional properties.
     All its properties may return None if not available.
 
     Properties:
-    face -- face associated with the person (Face)
-    body -- body associated with the person (Body)
-    voice -- voice associated with the person (Voice)
-    anonymous -- whether the person has not been identified yet (bool)
-    engagement_status -- current engagement status with the robot (EngagementLevel)
-    location_confidence -- confidence of the person transform estimate (float [0., 1.])
-    alias -- ID of another Person object associated with the same person (str)
+
+    - :py:meth:`face` -- face associated with the person (Face)
+    - :py:meth:`body` -- body associated with the person (Body)
+    - :py:meth:`voice` -- voice associated with the person (Voice)
+    - :py:meth:`anonymous` -- whether the person has not been identified yet (bool)
+    - :py:meth:`engagement_status` -- current engagement status with the robot (EngagementLevel)
+    - :py:meth:`location_confidence` -- confidence of the person transform estimate (float [0., 1.])
+    - :py:meth:`alias` -- ID of another Person object associated with the same person (str)
     )";
   person.def_property_readonly(
-    "face", &hri::Person::face, "Face associated with the person (Face)");
+    "face", &hri::Person::face,
+    "Face associated with the person (Face)");
   person.def_property_readonly(
-    "body", &hri::Person::body, "Body associated with the person (Body)");
+    "body", &hri::Person::body,
+    "Body associated with the person (Body)");
   person.def_property_readonly(
-    "voice", &hri::Person::voice, "Voice associated with the person (Voice)");
+    "voice", &hri::Person::voice,
+    "Voice associated with the person (Voice)");
   person.def_property_readonly(
-    "anonymous", &hri::Person::anonymous, "Whether the person has not been identified yet (bool)");
+    "anonymous", &hri::Person::anonymous,
+    "Whether the person has not been identified yet (bool)");
   person.def_property_readonly(
     "engagement_status", &hri::Person::engagementStatus,
     "Current engagement status with the robot (EngagementLevel)");
@@ -475,93 +582,121 @@ PYBIND11_MODULE(hri, m) {
   // overrides the TrackedFeature one
   person.def_property_readonly("transform", &hri::Person::transform);
 
-  py::class_<PyHRIListener, std::shared_ptr<PyHRIListener>> hri_listener(m, "HRIListener");
+  py::class_<PyHRIListener, std::shared_ptr<PyHRIListener>> hri_listener(
+    m, "HRIListener");
   hri_listener.doc() =
     R"(
     Main entry point to the library.
 
-    The class must be instantiated through the factory function `create`.
+    The class must be instantiated through the factory function ``create``.
     I will spawn a ROS node and use it to subscribe to all the ROS4HRI topics.
     The tracked features information can be accessed in Python native objects throught this object
     properties.
 
     Properties:
-    faces -- currently tracked faces (Dict[str, Face])
-    bodies -- currently tracked bodies (Dict[str, Body])
-    voices -- currently tracked voices (Dict[str, Voice])
-    persons -- currently known persons (Dict[str, Person])
-    tracked_persons -- currently tracked persons (Dict[str, Person])
+
+    - :py:attr:`faces`: currently tracked faces (Dict[str, Face])
+    - :py:attr:`bodies`: currently tracked bodies (Dict[str, Body])
+    - :py:attr:`voices`: currently tracked voices (Dict[str, Voice])
+    - :py:attr:`persons`: currently known persons (Dict[str, Person])
+    - :py:attr:`tracked_persons`: currently tracked persons (Dict[str, Person])
 
     Methods (use `help(HRIListener)` to see the signatures):
-    create -- generate the class, selecting the spawned node name and whether it spins automatically
-    on_face -- registers a callback function, to be invoked everytime a new face is tracked
-    on_body -- registers a callback function, to be invoked everytime a new body is tracked
-    on_voice -- registers a callback function, to be invoked everytime a new voice is tracked
-    on_person -- registers a callback function, to be invoked everytime a new person is known
-    on_tracked_person -- registers a callback function, to be invoked everytime a new person is
-                         tracked
-    on_face_lost -- registers a callback function, to be invoked everytime a tracked face is lost
-    on_body_lost -- registers a callback function, to be invoked everytime a tracked body is lost
-    on_voice_lost -- registers a callback function, to be invoked everytime a tracked voice is lost
-    on_person_lost -- registers a callback function, to be invoked everytime a known person is
-                      forgotten
-    on_tracked_person_lost -- registers a callback function, to be invoked everytime a tracked
-                              person is lost
-    set_reference_frame -- selects the reference frame for all the `transform` properties
-    spin_some -- if the class node does not spin automatically, this function must be called
-                 regularly to manually spin it
+
+    - :py:meth:`create` -- generate the class, selecting the spawned node name and whether it spins automatically
+    - :py:meth:`on_face` -- registers a callback function, to be invoked everytime a new face is tracked
+    - :py:meth:`on_body` -- registers a callback function, to be invoked everytime a new body is tracked
+    - :py:meth:`on_voice` -- registers a callback function, to be invoked everytime a new voice is tracked
+    - :py:meth:`on_person` -- registers a callback function, to be invoked everytime a new person is known
+    - :py:meth:`on_tracked_person` -- registers a callback function, to be invoked everytime a new person is
+      tracked
+    - :py:meth:`on_face_lost` -- registers a callback function, to be invoked everytime a tracked face is lost
+    - :py:meth:`on_body_lost` -- registers a callback function, to be invoked everytime a tracked body is lost
+    - :py:meth:`on_voice_lost` -- registers a callback function, to be invoked everytime a tracked voice is lost
+    - :py:meth:`on_person_lost` -- registers a callback function, to be invoked everytime a known person is
+      forgotten
+    - :py:meth:`on_tracked_person_lost` -- registers a callback function, to be invoked everytime a tracked
+      person is lost
+    - :py:meth:`set_reference_frame` -- selects the reference frame for all the `transform` properties
+    - :py:meth:`spin_some` -- if the class node does not spin automatically, this function must be called
+      regularly to manually spin it
     )";
   hri_listener.def(
-    py::init(&PyHRIListener::create), py::arg("node_name"), py::arg("auto_spin") = true,
-    "Generate the class, selecting the spawned node name and whether it spins automatically");
+    py::init(&PyHRIListener::create), py::arg("node_name"),
+    py::arg("auto_spin") = true, py::arg("use_sim_time") = false,
+    "Generate the class, selecting the spawned node name and "
+    "whether it spins automatically");
   hri_listener.def_property_readonly(
-    "faces", &hri::HRIListener::getFaces, "Currently tracked faces (Dict[str, Face])");
+    "faces", &hri::HRIListener::getFaces,
+    "Currently tracked faces (Dict[str, Face])");
   hri_listener.def_property_readonly(
-    "bodies", &hri::HRIListener::getBodies, "Currently tracked bodies (Dict[str, Body])");
+    "bodies", &hri::HRIListener::getBodies,
+    "Currently tracked bodies (Dict[str, Body])");
   hri_listener.def_property_readonly(
-    "voices", &hri::HRIListener::getVoices, "Currently tracked voices (Dict[str, Voice])");
+    "voices", &hri::HRIListener::getVoices,
+    "Currently tracked voices (Dict[str, Voice])");
   hri_listener.def_property_readonly(
-    "persons", &hri::HRIListener::getPersons, "Currently known persons (Dict[str, Person])");
+    "persons", &hri::HRIListener::getPersons,
+    "Currently known persons (Dict[str, Person])");
   hri_listener.def_property_readonly(
     "tracked_persons", &hri::HRIListener::getTrackedPersons,
     "Currently tracked persons (Dict[str, Person])");
   hri_listener.def(
     "on_face", &hri::HRIListener::onFace, py::arg("callback"),
-    "Registers a callback function, to be invoked everytime a new face is tracked");
+    "Registers a callback function, to be invoked everytime a "
+    "new face is tracked");
   hri_listener.def(
     "on_body", &hri::HRIListener::onBody, py::arg("callback"),
-    "Registers a callback function, to be invoked everytime a new body is tracked");
+    "Registers a callback function, to be invoked everytime a "
+    "new body is tracked");
   hri_listener.def(
     "on_voice", &hri::HRIListener::onVoice, py::arg("callback"),
-    "Registers a callback function, to be invoked everytime a new voice is tracked");
+    "Registers a callback function, to be invoked everytime a "
+    "new voice is tracked");
   hri_listener.def(
-    "on_person", &hri::HRIListener::onPerson, py::arg("callback"),
-    "Registers a callback function, to be invoked everytime a new person is known");
+    "on_person", &hri::HRIListener::onPerson,
+    py::arg("callback"),
+    "Registers a callback function, to be invoked everytime a "
+    "new person is known");
   hri_listener.def(
-    "on_tracked_person", &hri::HRIListener::onTrackedPerson, py::arg("callback"),
-    "Registers a callback function, to be invoked everytime a new person is tracked");
+    "on_tracked_person", &hri::HRIListener::onTrackedPerson,
+    py::arg("callback"),
+    "Registers a callback function, to be invoked everytime a "
+    "new person is tracked");
   hri_listener.def(
-    "on_face_lost", &hri::HRIListener::onFaceLost, py::arg("callback"),
-    "Registers a callback function, to be invoked everytime a tracked face is lost");
+    "on_face_lost", &hri::HRIListener::onFaceLost,
+    py::arg("callback"),
+    "Registers a callback function, to be invoked everytime a "
+    "tracked face is lost");
   hri_listener.def(
-    "on_body_lost", &hri::HRIListener::onBodyLost, py::arg("callback"),
-    "Registers a callback function, to be invoked everytime a tracked body is lost");
+    "on_body_lost", &hri::HRIListener::onBodyLost,
+    py::arg("callback"),
+    "Registers a callback function, to be invoked everytime a "
+    "tracked body is lost");
   hri_listener.def(
-    "on_voice_lost", &hri::HRIListener::onVoiceLost, py::arg("callback"),
-    "Registers a callback function, to be invoked everytime a tracked voice is lost");
+    "on_voice_lost", &hri::HRIListener::onVoiceLost,
+    py::arg("callback"),
+    "Registers a callback function, to be invoked everytime a "
+    "tracked voice is lost");
   hri_listener.def(
-    "on_person_lost", &hri::HRIListener::onPersonLost, py::arg("callback"),
-    "Registers a callback function, to be invoked everytime a known person is forgotten");
+    "on_person_lost", &hri::HRIListener::onPersonLost,
+    py::arg("callback"),
+    "Registers a callback function, to be invoked everytime a "
+    "known person is forgotten");
   hri_listener.def(
-    "on_tracked_person_lost", &hri::HRIListener::onTrackedPersonLost, py::arg("callback"),
-    "Registers a callback function, to be invoked everytime a tracked person is lost");
+    "on_tracked_person_lost",
+    &hri::HRIListener::onTrackedPersonLost, py::arg("callback"),
+    "Registers a callback function, to be invoked everytime a "
+    "tracked person is lost");
   hri_listener.def(
-    "set_reference_frame", &hri::HRIListener::setReferenceFrame, py::arg("frame"),
+    "set_reference_frame", &hri::HRIListener::setReferenceFrame,
+    py::arg("frame"),
     "Selects the reference frame for all the `transform` properties");
   hri_listener.def(
     "spin_some", &PyHRIListener::spin_some, py::arg("timeout"),
-    "If the class node does not spin automatically, this function must be called regularly to "
+    "If the class node does not spin automatically, this "
+    "function must be called regularly to "
     "manually spin it");
-}
+}  // NOLINT(readability/fn_size)
 
 }  // namespace pyhri

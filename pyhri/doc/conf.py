@@ -1,4 +1,4 @@
-# Copyright (c) 2023 PAL Robotics S.L. All rights reserved.
+# Copyright (c) 2024 PAL Robotics S.L. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,30 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from hri.hri import (
-    Body,
-    EngagementLevel,
-    Expression,
-    Face,
-    FacialActionUnit,
-    FacialLandmark,
-    FeatureTracker,
-    Gender,
-    HRIListener,
-    Person,
-    SkeletalKeypoint,
-    Voice)
+import sys
+import os
 
-__all__ = [
-    'Body',
-    'EngagementLevel',
-    'Expression',
-    'Face',
-    'FacialActionUnit',
-    'FacialLandmark',
-    'FeatureTracker',
-    'Gender',
-    'HRIListener',
-    'Person',
-    'SkeletalKeypoint',
-    'Voice']
+sys.path.insert(0, os.path.abspath('.'))
+
+extensions = ["sphinx.ext.autodoc"]
+
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
