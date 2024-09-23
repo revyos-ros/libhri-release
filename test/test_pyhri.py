@@ -20,6 +20,7 @@ from hri_msgs.msg import (
     FacialActionUnits, FacialLandmarks, IdsList, LiveSpeech, NormalizedRegionOfInterest2D,
     Skeleton2D, SoftBiometrics)
 from hri_msgs.msg import EngagementLevel as EngagementLevelMsg
+from hri_msgs.msg import Expression as ExpressionMsg
 import numpy as np
 import rclpy
 from rclpy.context import Context
@@ -31,7 +32,8 @@ from tf2_ros import StaticTransformBroadcaster
 import unittest
 
 from hri import (
-    EngagementLevel, FacialActionUnit, FacialLandmark, Gender, HRIListener, SkeletalKeypoint)
+    EngagementLevel, Expression, FacialActionUnit, FacialLandmark, Gender, HRIListener,
+    SkeletalKeypoint)
 
 
 class TestHRI(unittest.TestCase):
@@ -263,7 +265,7 @@ class TestHRI(unittest.TestCase):
         voice_a_speech_pub = self.tester_node.create_publisher(
             LiveSpeech, '/humans/voices/A/speech', 1)
 
-        def cb(_):
+        def cb(*_):
             nonlocal cb_triggered
             cb_triggered = True
 
@@ -295,15 +297,18 @@ class TestHRI(unittest.TestCase):
         self.assertFalse(self.hri_listener.voices['A'].is_speaking)
 
         cb_triggered = False
-        voice_a_speech_pub.publish(LiveSpeech(final='test speech'))
+        voice_a_speech_pub.publish(LiveSpeech(locale='en_GB', final='test speech'))
         self.spin()
         self.assertTrue(cb_triggered)
+        self.assertEqual(self.hri_listener.voices['A'].locale, 'en_GB')
         self.assertEqual(self.hri_listener.voices['A'].speech, 'test speech')
 
         cb_triggered = False
-        voice_a_speech_pub.publish(LiveSpeech(incremental='test speech incremental'))
+        voice_a_speech_pub.publish(
+            LiveSpeech(locale='en_US', incremental='test speech incremental'))
         self.spin()
         self.assertTrue(cb_triggered)
+        self.assertEqual(self.hri_listener.voices['A'].locale, 'en_US')
         self.assertEqual(
             self.hri_listener.voices['A'].incremental_speech, 'test speech incremental')
 
@@ -522,6 +527,43 @@ class TestHRI(unittest.TestCase):
         softbiometrics_pub.publish(softbiometrics_msg)
         self.spin()
         self.assertIsNone(face.gender)
+
+    def test_expression(self):
+        # Create publishers
+        faces_pub = self.tester_node.create_publisher(
+            IdsList, '/humans/faces/tracked', 1)
+        face_pub = self.tester_node.create_publisher(
+            std_msgs.msg.String, '/humans/persons/p1/face_id', self.latching_qos)
+        expression_pub = self.tester_node.create_publisher(
+            ExpressionMsg, '/humans/faces/f1/expression', 1)
+
+        # Publish a face ID
+        faces_pub.publish(IdsList(ids=['f1']))
+        self.spin()
+        self.assertEqual(len(self.hri_listener.faces), 1)
+
+        # Test reception of an expression and its confidence
+        expression_msg = ExpressionMsg(expression=ExpressionMsg.ANGRY, confidence=0.9)
+        expression_pub.publish(expression_msg)
+        face_pub.publish(std_msgs.msg.String(data='f1'))
+        self.spin()
+        face = self.hri_listener.faces['f1']
+        self.assertIsNotNone(face.expression)
+        self.assertEqual(face.expression, Expression.ANGRY)
+        self.assertAlmostEqual(face.expression_confidence, 0.9)
+
+        # Test reception of an expression change
+        expression_msg.expression = ExpressionMsg.SAD
+        expression_pub.publish(expression_msg)
+        self.spin()
+        self.assertEqual(face.expression, Expression.SAD)
+
+        # Test valence and arousal reception
+        expression_pub.publish(ExpressionMsg(valence=-0.8, arousal=0.4))
+        self.spin()
+        self.assertIsNotNone(face.expression_va)
+        self.assertAlmostEqual(face.expression_va[0], -0.8)
+        self.assertAlmostEqual(face.expression_va[1], 0.4)
 
     def test_engagement_level(self):
         tracked_persons_pub = self.tester_node.create_publisher(
@@ -889,6 +931,49 @@ class TestHRI(unittest.TestCase):
         self.assertAlmostEqual(p1.location_confidence, 1.0)
         self.assertIsNotNone(
             p1.transform, 'location confidence > 0 => a transform should be available')
+
+    def test_gaze_transform(self):
+        tracked_faces_pub = self.tester_node.create_publisher(
+            IdsList, '/humans/faces/tracked', 1)
+        tester_executor = SingleThreadedExecutor(context=self.context)
+        tester_executor.add_node(self.tester_node)
+        static_broadcaster = StaticTransformBroadcaster(self.tester_node)
+        transform_msg = TransformStamped()
+
+        self.hri_listener.set_reference_frame('base_link')
+        transform_msg.header.stamp = self.tester_node.get_clock().now().to_msg()
+        transform_msg.header.frame_id = 'world'
+        transform_msg.child_frame_id = 'base_link'
+        transform_msg.transform.translation.x = -1.0
+        transform_msg.transform.translation.y = 0.0
+        transform_msg.transform.translation.z = 0.0
+        transform_msg.transform.rotation.w = 1.0
+        static_broadcaster.sendTransform(transform_msg)
+        tester_executor.spin_once(1.)
+        self.spin()
+
+        tracked_faces_pub.publish(IdsList(ids=['f1']))
+        self.spin()
+        f1 = self.hri_listener.faces['f1']
+        self.assertIsNone(f1.gaze_transform, 'no gaze transform should be available')
+
+        transform_msg.child_frame_id = 'gaze_f1'
+        transform_msg.transform.translation.x = transform_msg.transform.translation.x + 2.0
+        static_broadcaster.sendTransform(transform_msg)
+        tester_executor.spin_once(1.)
+        self.spin()
+        self.assertIsNotNone(f1.gaze_transform, 'the gaze transform should be available')
+        t = f1.gaze_transform
+        self.assertEqual(t.child_frame_id, 'gaze_f1')
+        self.assertEqual(t.header.frame_id, 'base_link')
+        self.assertAlmostEqual(t.transform.translation.x, 2.0)
+
+        self.hri_listener.set_reference_frame('gaze_f1')
+        self.assertIsNotNone(f1.gaze_transform)
+        t = f1.gaze_transform
+        self.assertEqual(t.child_frame_id, 'gaze_f1')
+        self.assertEqual(t.header.frame_id, 'gaze_f1')
+        self.assertAlmostEqual(t.transform.translation.x, 0.)
 
 
 if __name__ == '__main__':

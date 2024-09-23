@@ -2,6 +2,43 @@
 Changelog for package pyhri
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.6.1 (2024-09-10)
+------------------
+* bring back dependencies on tf2 and cv_bridge as <depends> so that <build_export_depend> is implied
+* Contributors: Séverin Lemaignan
+
+2.6.0 (2024-09-09)
+------------------
+* add face expression
+* change build to ament_cmake_auto
+* Contributors: Luka Juricic
+
+2.5.1 (2024-08-21)
+------------------
+* disable some CMAKE optimization
+  avoid parallel compilation warning with pybind
+* add use_sim_time option to pyhri
+* Contributors: Luka Juricic, Séverin Lemaignan
+
+2.5.0 (2024-08-02)
+------------------
+* readd deprecated function signatures
+* add voice locale
+* add tests for gaze transform
+* fix thread joining in pyhri listener destructor
+* Contributors: Luka Juricic
+
+2.4.1 (2024-06-19)
+------------------
+* add PyHRIListener destructor
+* [doc] minor fixes
+* various improvement to the pyhri documentation
+  running  should yield a correct API documentation
+* Contributors: Luka Juricic, Séverin Lemaignan
+
+2.4.0 (2024-05-13)
+------------------
+
 2.3.0 (2024-03-18)
 ------------------
 * change python module name to hri
