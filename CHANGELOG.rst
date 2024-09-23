@@ -2,6 +2,38 @@
 Changelog for package hri
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.6.1 (2024-09-10)
+------------------
+* bring back dependencies on tf2 and cv_bridge as <depends> so that <build_export_depend> is implied
+* Contributors: Séverin Lemaignan
+
+2.6.0 (2024-09-09)
+------------------
+* add face expression
+* change build to ament_cmake_auto
+* Contributors: Luka Juricic
+
+2.5.1 (2024-08-21)
+------------------
+
+2.5.0 (2024-08-02)
+------------------
+* readd deprecated function signatures
+* add voice locale
+* add tests for gaze transform
+* Contributors: Luka Juricic
+
+2.4.1 (2024-06-19)
+------------------
+* [doc] minor fixes
+* Contributors: Séverin Lemaignan
+
+2.4.0 (2024-05-13)
+------------------
+* adding doxygen documentation
+* adding body description support for Body objects
+* Contributors: lorenzoferrini
+
 2.3.0 (2024-03-18)
 ------------------
 
